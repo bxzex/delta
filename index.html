@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Delta</title>
+<meta name="description" content="Myers diff and three-way merge. The real O(ND) algorithm, character-level refinement, conflict detection and unified patch output." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#ffffff; --tint:#f6f7f8; --line:#e2e5e9; --line2:#cdd3da;
+  --ink:#0b0d0f; --sub:#5b6570; --dim:#949da6;
+  --add:#116329; --addbg:#e6f7ec; --addln:#aee5c0;
+  --del:#a40e26; --delbg:#fdecef; --delln:#f5bfc8;
+  --acc:#0b0d0f; --warn:#8a5a00; --warnbg:#fff6e0;
+  --d:"Outfit",system-ui,sans-serif;
+  --m:"Source Code Pro",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--paper);color:var(--ink);font-family:var(--d);font-size:13.5px;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+
+.top{display:flex;align-items:center;gap:11px;padding:12px 18px;border-bottom:2px solid var(--ink);flex:none;flex-wrap:wrap}
+.brand{font-family:var(--d);font-weight:700;font-size:20px;letter-spacing:-.03em}
+.brand i{font-style:normal;color:var(--dim)}
+button{font-family:var(--d);font-size:12.5px;font-weight:500;color:var(--ink);background:var(--paper);border:1px solid var(--line2);
+  border-radius:3px;padding:7px 12px;cursor:pointer}
+button:hover{background:var(--tint);border-color:var(--ink)}
+button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button.solid{background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:600}
+button.solid:hover{background:#2a2f35}
+.seg{display:flex;border:1px solid var(--line2);border-radius:3px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--line2);border-radius:0}
+.seg button:last-child{border-right:0}
+.sep{width:1px;height:20px;background:var(--line)}
+.right{margin-left:auto;display:flex;gap:16px;align-items:center;font-family:var(--m);font-size:11px;color:var(--sub)}
+.right b{color:var(--ink);font-weight:600}
+.right .a{color:var(--add)} .right .d{color:var(--del)}
+
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:2px solid var(--line2);flex:none;height:168px}
+.panes.three{grid-template-columns:1fr 1fr 1fr}
+.pane{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0}
+.pane:last-child{border-right:0}
+.pl{padding:7px 12px;background:var(--tint);border-bottom:1px solid var(--line);font-family:var(--m);font-size:10px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--sub);display:flex;justify-content:space-between}
+textarea{flex:1;border:0;outline:none;resize:none;padding:10px 12px;font-family:var(--m);font-size:12px;line-height:1.6;color:var(--ink);background:var(--paper)}
+textarea:focus{background:#fcfdff}
+
+.out{flex:1;overflow:auto;min-height:0}
+table{border-collapse:collapse;width:100%;font-family:var(--m);font-size:12.2px;line-height:1.62}
+td{padding:0 8px;vertical-align:top;white-space:pre-wrap;word-break:break-word}
+td.n{width:44px;text-align:right;color:var(--dim);background:var(--tint);border-right:1px solid var(--line);
+  user-select:none;font-size:10.5px;padding-top:1px;white-space:nowrap}
+tr.add td{background:var(--addbg)} tr.add td.n{background:var(--addln);color:#2c5c3c}
+tr.del td{background:var(--delbg)} tr.del td.n{background:var(--delln);color:#7d2634}
+tr.gap td{background:var(--tint);color:var(--dim);font-size:10.5px;padding:2px 8px;letter-spacing:.06em}
+tr.cf td{background:var(--warnbg)} tr.cf td.n{background:#f2dfae;color:#6b4700}
+td.sign{width:16px;text-align:center;color:var(--dim);padding:0}
+tr.add td.sign{color:var(--add)} tr.del td.sign{color:var(--del)}
+ins{background:#b6f0c8;text-decoration:none;border-radius:2px;padding:0 1px}
+del{background:#ffc2cc;text-decoration:none;border-radius:2px;padding:0 1px}
+.side{display:grid;grid-template-columns:1fr 1fr}
+.side .col{border-right:1px solid var(--line);min-width:0}
+.side .col:last-child{border-right:0}
+.empty{padding:26px;color:var(--dim);font-family:var(--m);font-size:12px}
+.foot{flex:none;border-top:1px solid var(--line);padding:9px 18px;font-family:var(--m);font-size:10.5px;color:var(--dim);
+  display:flex;gap:18px;flex-wrap:wrap}
+.foot a{color:var(--sub)}
+.foot span.k{color:var(--sub)}
+@media(max-width:800px){.panes{grid-template-columns:1fr;height:210px}.side{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <span class="brand">delta<i>/</i></span>
+  <div class="seg" id="views">
+    <button data-v="split" class="on">Side by side</button>
+    <button data-v="unified">Unified</button>
+    <button data-v="merge">Three-way merge</button>
+  </div>
+  <div class="sep"></div>
+  <button id="swap">Swap A/B</button>
+  <button id="patch">Copy patch</button>
+  <div class="sep"></div>
+  <button id="s1">Sample: edit</button>
+  <button id="s2">Sample: refactor</button>
+  <button id="s3">Sample: conflict</button>
+  <div class="right">
+    <span><b class="a" id="m-add">0</b> added</span>
+    <span><b class="d" id="m-del">0</b> removed</span>
+    <span><b id="m-sim">—</b> similar</span>
+    <span><b id="m-d">—</b> edit distance</span>
+    <span><b id="m-ms">—</b></span>
+  </div>
+</div>
+
+<div class="panes" id="panes">
+  <div class="pane" id="pane-base" style="display:none">
+    <div class="pl"><span>Base</span><span id="n-base">0 lines</span></div>
+    <textarea id="base" spellcheck="false"></textarea>
+  </div>
+  <div class="pane">
+    <div class="pl"><span>A · original</span><span id="n-a">0 lines</span></div>
+    <textarea id="a" spellcheck="false"></textarea>
+  </div>
+  <div class="pane">
+    <div class="pl"><span>B · changed</span><span id="n-b">0 lines</span></div>
+    <textarea id="b" spellcheck="false"></textarea>
+  </div>
+</div>
+
+<div class="out" id="out"></div>
+
+<div class="foot">
+  <span class="k">Myers O(ND) · character refinement · diff3</span>
+  <span id="f-alg">—</span>
+  <span style="margin-left:auto">Built by <a href="https://bxzex.com">bxzex</a> · <a href="https://github.com/bxzex/delta">Source</a></span>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* =====================================================================
+   Myers' O(ND) difference algorithm.
+
+   It walks diagonals k = x - y, tracking the furthest x reachable on each
+   for an edit distance d. The first time a diagonal reaches the far
+   corner, d is the shortest edit script length. Every row of V is kept so
+   the path can be walked backwards afterwards into a real edit script.
+   ===================================================================== */
+let lastSteps = 0;
+function myers(a, b){
+  const N = a.length, M = b.length, MAX = N + M;
+  if(MAX === 0) return [];
+  const off = MAX;
+  let v = new Int32Array(2*MAX + 1);
+  const trace = [];
+  lastSteps = 0;
+
+  for(let d=0; d<=MAX; d++){
+    trace.push(v.slice());
+    for(let k=-d; k<=d; k+=2){
+      lastSteps++;
+      let x;
+      if(k === -d || (k !== d && v[k-1+off] < v[k+1+off])) x = v[k+1+off];   // came down: an insertion
+      else x = v[k-1+off] + 1;                                              // came right: a deletion
+      let y = x - k;
+      while(x < N && y < M && a[x] === b[y]){ x++; y++; }                    // snake along equal items
+      v[k+off] = x;
+      if(x >= N && y >= M) return backtrack(trace, a, b, d, off);
+    }
+  }
+  return [];
+}
+function backtrack(trace, a, b, d, off){
+  const script = [];
+  let x = a.length, y = b.length;
+  for(let step=d; step>0; step--){
+    const v = trace[step];
+    const k = x - y;
+    let prevK;
+    if(k === -step || (k !== step && v[k-1+off] < v[k+1+off])) prevK = k+1;
+    else prevK = k-1;
+    const prevX = v[prevK+off], prevY = prevX - prevK;
+    while(x > prevX && y > prevY){ script.push({ t:"=", a:x-1, b:y-1 }); x--; y--; }
+    if(x === prevX) script.push({ t:"+", b:y-1 });
+    else script.push({ t:"-", a:x-1 });
+    x = prevX; y = prevY;
+  }
+  while(x > 0 && y > 0){ script.push({ t:"=", a:x-1, b:y-1 }); x--; y--; }
+  while(x > 0){ script.push({ t:"-", a:--x }); }
+  while(y > 0){ script.push({ t:"+", b:--y }); }
+  return script.reverse();
+}
+
+/* ---------- group the flat script into hunks ---------- */
+function toHunks(script){
+  const out = [];
+  for(const op of script){
+    const last = out[out.length-1];
+    if(last && last.t === op.t) last.items.push(op);
+    else out.push({ t:op.t, items:[op] });
+  }
+  return out;
+}
+
+/* ---------- character-level refinement inside a changed pair ---------- */
+const splitWords = s => s.match(/(\s+|\w+|[^\s\w])/g) || [];
+function refine(oldLine, newLine){
+  const A = splitWords(oldLine), B = splitWords(newLine);
+  const script = myers(A, B);
+  let oldHtml = "", newHtml = "";
+  for(const op of script){
+    if(op.t === "=") { oldHtml += esc(A[op.a]); newHtml += esc(B[op.b]); }
+    else if(op.t === "-") oldHtml += "<del>"+esc(A[op.a])+"</del>";
+    else newHtml += "<ins>"+esc(B[op.b])+"</ins>";
+  }
+  return { oldHtml, newHtml };
+}
+const esc = s => (s===undefined?"":String(s)).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+/* =====================================================================
+   diff3: anchor on lines unchanged in both sides, then classify each
+   region between anchors.
+   ===================================================================== */
+function merge3(base, A, B){
+  const sa = myers(base, A), sb = myers(base, B);
+  // for each base line, what it maps to on each side
+  const mapA = new Array(base.length).fill(null), mapB = new Array(base.length).fill(null);
+  sa.forEach(op => { if(op.t === "=") mapA[op.a] = op.b; });
+  sb.forEach(op => { if(op.t === "=") mapB[op.a] = op.b; });
+
+  const out = [];
+  let i = 0, ai = 0, bi = 0, conflicts = 0;
+  while(i <= base.length){
+    if(i < base.length && mapA[i] !== null && mapB[i] !== null && mapA[i] === ai && mapB[i] === bi){
+      out.push({ t:"same", lines:[base[i]] });
+      i++; ai++; bi++;
+      continue;
+    }
+    // gather up to the next line that is stable on both sides
+    let j = i;
+    while(j < base.length && !(mapA[j] !== null && mapB[j] !== null)) j++;
+    const nextA = j < base.length ? mapA[j] : A.length;
+    const nextB = j < base.length ? mapB[j] : B.length;
+    const baseChunk = base.slice(i, j);
+    const aChunk = A.slice(ai, nextA);
+    const bChunk = B.slice(bi, nextB);
+    const same = (x,y) => x.length === y.length && x.every((v,k) => v === y[k]);
+
+    if(same(aChunk, bChunk))            out.push({ t:"same", lines:aChunk });
+    else if(same(aChunk, baseChunk))    out.push({ t:"tookB", lines:bChunk });
+    else if(same(bChunk, baseChunk))    out.push({ t:"tookA", lines:aChunk });
+    else { out.push({ t:"conflict", a:aChunk, b:bChunk, base:baseChunk }); conflicts++; }
+
+    i = j; ai = nextA; bi = nextB;
+    if(j >= base.length && ai >= A.length && bi >= B.length) break;
+    if(j >= base.length && (ai < A.length || bi < B.length)){
+      const aRest = A.slice(ai), bRest = B.slice(bi);
+      if(aRest.length || bRest.length){
+        if(same(aRest,bRest)) out.push({ t:"same", lines:aRest });
+        else if(!aRest.length) out.push({ t:"tookB", lines:bRest });
+        else if(!bRest.length) out.push({ t:"tookA", lines:aRest });
+        else { out.push({ t:"conflict", a:aRest, b:bRest, base:[] }); conflicts++; }
+      }
+      break;
+    }
+  }
+  return { out, conflicts };
+}
+
+/* ---------- rendering ---------- */
+let view = "split";
+const lines = s => s.replace(/\n$/,"").split("\n");
+
+function run(){
+  const A = lines($("a").value), B = lines($("b").value);
+  $("n-a").textContent = A.length+" lines";
+  $("n-b").textContent = B.length+" lines";
+  $("n-base").textContent = lines($("base").value).length+" lines";
+
+  if(view === "merge") return runMerge();
+
+  const t0 = performance.now();
+  const script = myers(A, B);
+  const ms = performance.now()-t0;
+  const hunks = toHunks(script);
+
+  let added = 0, removed = 0, same = 0;
+  script.forEach(op => { if(op.t === "+") added++; else if(op.t === "-") removed++; else same++; });
+  const total = added + removed + same;
+  $("m-add").textContent = added;
+  $("m-del").textContent = removed;
+  $("m-sim").textContent = total ? Math.round(same/total*100)+"%" : "—";
+  $("m-d").textContent = added + removed;
+  $("m-ms").textContent = ms.toFixed(2)+" ms";
+  $("f-alg").textContent = lastSteps.toLocaleString()+" diagonal steps · "+hunks.length+" hunks";
+
+  view === "split" ? renderSplit(A, B, hunks) : renderUnified(A, B, hunks);
+}
+
+// pair a run of deletions with the run of insertions that follows it, so the
+// two can be refined against each other word by word
+function pairHunks(hunks){
+  const rows = [];
+  for(let h=0; h<hunks.length; h++){
+    const cur = hunks[h], next = hunks[h+1];
+    if(cur.t === "-" && next && next.t === "+"){
+      rows.push({ kind:"change", del:cur.items, ins:next.items });
+      h++;
+    } else if(cur.t === "-") rows.push({ kind:"del", del:cur.items });
+    else if(cur.t === "+") rows.push({ kind:"ins", ins:cur.items });
+    else rows.push({ kind:"same", items:cur.items });
+  }
+  return rows;
+}
+function renderSplit(A, B, hunks){
+  const rows = pairHunks(hunks);
+  let left = "", right = "";
+  const CTX = 3;
+  rows.forEach((r,ri) => {
+    if(r.kind === "same"){
+      const n = r.items.length;
+      const head = r.items.slice(0, ri === 0 ? 0 : CTX);
+      const tail = r.items.slice(Math.max(head.length, n - (ri === rows.length-1 ? 0 : CTX)));
+      const hidden = n - head.length - tail.length;
+      const emit = op => {
+        left  += '<tr><td class="n">'+(op.a+1)+'</td><td class="sign"> </td><td>'+esc(A[op.a])+'</td></tr>';
+        right += '<tr><td class="n">'+(op.b+1)+'</td><td class="sign"> </td><td>'+esc(B[op.b])+'</td></tr>';
+      };
+      head.forEach(emit);
+      if(hidden > 0){
+        const g = '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>'+hidden+' unchanged lines</td></tr>';
+        left += g; right += g;
+      }
+      tail.forEach(emit);
+      return;
+    }
+    const dels = r.del || [], ins = r.ins || [];
+    const n = Math.max(dels.length, ins.length);
+    for(let i=0;i<n;i++){
+      const d = dels[i], s = ins[i];
+      let dHtml = d ? esc(A[d.a]) : "", sHtml = s ? esc(B[s.b]) : "";
+      if(d && s){ const rf = refine(A[d.a], B[s.b]); dHtml = rf.oldHtml; sHtml = rf.newHtml; }
+      left  += d ? '<tr class="del"><td class="n">'+(d.a+1)+'</td><td class="sign">−</td><td>'+dHtml+'</td></tr>'
+                 : '<tr class="gap"><td class="n"></td><td class="sign"></td><td></td></tr>';
+      right += s ? '<tr class="add"><td class="n">'+(s.b+1)+'</td><td class="sign">+</td><td>'+sHtml+'</td></tr>'
+                 : '<tr class="gap"><td class="n"></td><td class="sign"></td><td></td></tr>';
+    }
+  });
+  $("out").innerHTML = (left||right)
+    ? '<div class="side"><div class="col"><table>'+left+'</table></div><div class="col"><table>'+right+'</table></div></div>'
+    : '<p class="empty">Both sides are identical.</p>';
+}
+function renderUnified(A, B, hunks){
+  const rows = pairHunks(hunks);
+  let h = "";
+  const CTX = 3;
+  rows.forEach((r,ri) => {
+    if(r.kind === "same"){
+      const n = r.items.length;
+      const head = r.items.slice(0, ri === 0 ? 0 : CTX);
+      const tail = r.items.slice(Math.max(head.length, n - (ri === rows.length-1 ? 0 : CTX)));
+      const hidden = n - head.length - tail.length;
+      head.forEach(op => h += '<tr><td class="n">'+(op.a+1)+'</td><td class="sign"> </td><td>'+esc(A[op.a])+'</td></tr>');
+      if(hidden > 0) h += '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>@@ '+hidden+' unchanged lines @@</td></tr>';
+      tail.forEach(op => h += '<tr><td class="n">'+(op.a+1)+'</td><td class="sign"> </td><td>'+esc(A[op.a])+'</td></tr>');
+      return;
+    }
+    (r.del||[]).forEach(op => h += '<tr class="del"><td class="n">'+(op.a+1)+'</td><td class="sign">−</td><td>'+esc(A[op.a])+'</td></tr>');
+    (r.ins||[]).forEach(op => h += '<tr class="add"><td class="n">'+(op.b+1)+'</td><td class="sign">+</td><td>'+esc(B[op.b])+'</td></tr>');
+  });
+  $("out").innerHTML = h ? '<table>'+h+'</table>' : '<p class="empty">Both sides are identical.</p>';
+}
+function runMerge(){
+  const base = lines($("base").value), A = lines($("a").value), B = lines($("b").value);
+  const t0 = performance.now();
+  const { out, conflicts } = merge3(base, A, B);
+  const ms = performance.now()-t0;
+  let h = "", n = 1, kept = 0;
+  out.forEach(seg => {
+    if(seg.t === "conflict"){
+      h += '<tr class="cf"><td class="n"></td><td class="sign">!</td><td>&lt;&lt;&lt;&lt;&lt;&lt;&lt; A</td></tr>';
+      seg.a.forEach(l => h += '<tr class="del"><td class="n">'+(n++)+'</td><td class="sign">−</td><td>'+esc(l)+'</td></tr>');
+      h += '<tr class="cf"><td class="n"></td><td class="sign">!</td><td>=======</td></tr>';
+      seg.b.forEach(l => h += '<tr class="add"><td class="n">'+(n++)+'</td><td class="sign">+</td><td>'+esc(l)+'</td></tr>');
+      h += '<tr class="cf"><td class="n"></td><td class="sign">!</td><td>&gt;&gt;&gt;&gt;&gt;&gt;&gt; B</td></tr>';
+      return;
+    }
+    const cls = seg.t === "tookA" ? "del" : seg.t === "tookB" ? "add" : "";
+    const sign = seg.t === "tookA" ? "A" : seg.t === "tookB" ? "B" : " ";
+    seg.lines.forEach(l => { kept++; h += '<tr class="'+cls+'"><td class="n">'+(n++)+'</td><td class="sign">'+sign+'</td><td>'+esc(l)+'</td></tr>'; });
+  });
+  $("out").innerHTML = h ? '<table>'+h+'</table>' : '<p class="empty">Nothing to merge.</p>';
+  $("m-add").textContent = out.filter(s=>s.t==="tookB").length;
+  $("m-del").textContent = out.filter(s=>s.t==="tookA").length;
+  $("m-sim").textContent = conflicts ? conflicts+" conflict"+(conflicts>1?"s":"") : "clean";
+  $("m-d").textContent = kept+" lines";
+  $("m-ms").textContent = ms.toFixed(2)+" ms";
+  $("f-alg").textContent = "diff3 · "+out.length+" regions · "+conflicts+" conflicting";
+}
+function unifiedPatch(){
+  const A = lines($("a").value), B = lines($("b").value);
+  const hunks = toHunks(myers(A,B));
+  let out = "--- a\n+++ b\n";
+  let ai = 1, bi = 1;
+  const rows = pairHunks(hunks);
+  rows.forEach(r => {
+    if(r.kind === "same"){ r.items.forEach(() => { ai++; bi++; }); return; }
+    const dels = r.del||[], ins = r.ins||[];
+    out += "@@ -"+ (dels.length? dels[0].a+1 : ai) +","+dels.length+" +"+ (ins.length? ins[0].b+1 : bi) +","+ins.length+" @@\n";
+    dels.forEach(op => { out += "-"+A[op.a]+"\n"; ai++; });
+    ins.forEach(op => { out += "+"+B[op.b]+"\n"; bi++; });
+  });
+  return out;
+}
+
+/* ---------- samples ---------- */
+const SAMPLES = {
+  s1: {
+    a: `function total(items) {\n  let sum = 0;\n  for (const item of items) {\n    sum += item.price;\n  }\n  return sum;\n}\n\nconst cart = load();\nconsole.log(total(cart));`,
+    b: `function total(items, taxRate = 0) {\n  let sum = 0;\n  for (const item of items) {\n    sum += item.price * item.quantity;\n  }\n  return sum * (1 + taxRate);\n}\n\nconst cart = load();\nconsole.log(total(cart, 0.08));`,
+  },
+  s2: {
+    a: `class Store {\n  constructor() {\n    this.items = [];\n    this.listeners = [];\n  }\n  add(item) {\n    this.items.push(item);\n    this.notify();\n  }\n  notify() {\n    this.listeners.forEach(fn => fn(this.items));\n  }\n}`,
+    b: `class Store {\n  #items = [];\n  #listeners = new Set();\n\n  add(item) {\n    this.#items = [...this.#items, item];\n    this.#notify();\n  }\n\n  subscribe(fn) {\n    this.#listeners.add(fn);\n    return () => this.#listeners.delete(fn);\n  }\n\n  #notify() {\n    for (const fn of this.#listeners) fn(this.#items);\n  }\n}`,
+  },
+  s3: {
+    base: `server:\n  host: localhost\n  port: 3000\n  timeout: 30\nlogging:\n  level: info\n  format: text`,
+    a: `server:\n  host: localhost\n  port: 8080\n  timeout: 30\nlogging:\n  level: info\n  format: text`,
+    b: `server:\n  host: localhost\n  port: 4000\n  timeout: 60\nlogging:\n  level: debug\n  format: text`,
+  },
+};
+$("s1").onclick = () => { setView("split"); $("a").value = SAMPLES.s1.a; $("b").value = SAMPLES.s1.b; run(); };
+$("s2").onclick = () => { setView("split"); $("a").value = SAMPLES.s2.a; $("b").value = SAMPLES.s2.b; run(); };
+$("s3").onclick = () => { $("base").value = SAMPLES.s3.base; $("a").value = SAMPLES.s3.a; $("b").value = SAMPLES.s3.b; setView("merge"); run(); };
+
+function setView(v){
+  view = v;
+  [...$("views").children].forEach(btn => btn.classList.toggle("on", btn.dataset.v === v));
+  $("pane-base").style.display = v === "merge" ? "" : "none";
+  $("panes").classList.toggle("three", v === "merge");
+}
+[...$("views").children].forEach(btn => btn.onclick = () => { setView(btn.dataset.v); run(); });
+$("swap").onclick = () => { const t = $("a").value; $("a").value = $("b").value; $("b").value = t; run(); };
+$("patch").onclick = async () => {
+  const text = unifiedPatch();
+  try { await navigator.clipboard.writeText(text); $("f-alg").textContent = "patch copied · "+text.split("\n").length+" lines"; }
+  catch(e){
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text],{type:"text/plain"}));
+    a.download = "delta.patch"; a.click(); URL.revokeObjectURL(a.href);
+    $("f-alg").textContent = "patch downloaded";
+  }
+};
+["a","b","base"].forEach(id => $(id).addEventListener("input", run));
+
+$("a").value = SAMPLES.s1.a;
+$("b").value = SAMPLES.s1.b;
+$("base").value = SAMPLES.s3.base;
+setView("split");
+run();
+</script>
+</body>
+</html>
