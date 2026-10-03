@@ -7,7 +7,7 @@
 <meta name="description" content="Myers diff and three-way merge. The real O(ND) algorithm, character-level refinement, conflict detection and unified patch output." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
 :root{
   --paper:#ffffff; --tint:#f6f7f8; --line:#e2e5e9; --line2:#cdd3da;
@@ -15,7 +15,7 @@
   --add:#116329; --addbg:#e6f7ec; --addln:#aee5c0;
   --del:#a40e26; --delbg:#fdecef; --delln:#f5bfc8;
   --acc:#0b0d0f; --warn:#8a5a00; --warnbg:#fff6e0;
-  --d:"Outfit",system-ui,sans-serif;
+  --d:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --m:"Source Code Pro",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box}
@@ -23,7 +23,7 @@ html,body{margin:0;height:100%;overflow:hidden}
 body{background:var(--paper);color:var(--ink);font-family:var(--d);font-size:13.5px;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
 
 .top{display:flex;align-items:center;gap:11px;padding:12px 18px;border-bottom:2px solid var(--ink);flex:none;flex-wrap:wrap}
-.brand{font-family:var(--d);font-weight:700;font-size:20px;letter-spacing:-.03em}
+.brand{font-family:var(--d);font-weight:700;font-size:17px}
 button{font-family:var(--d);font-size:12.5px;font-weight:500;color:var(--ink);background:var(--paper);border:1px solid var(--line2);
   border-radius:3px;padding:7px 12px;cursor:pointer}
 button:hover{background:var(--tint);border-color:var(--ink)}
@@ -34,7 +34,7 @@ button.solid:hover{background:#2a2f35}
 .seg button{border:0;border-right:1px solid var(--line2);border-radius:0}
 .seg button:last-child{border-right:0}
 .sep{width:1px;height:20px;background:var(--line)}
-.right{margin-left:auto;display:flex;gap:16px;align-items:center;font-family:var(--m);font-size:11px;color:var(--sub)}
+.right{margin-left:auto;display:flex;gap:16px;align-items:center;font-size:12.5px;color:var(--sub);font-variant-numeric:tabular-nums}
 .right b{color:var(--ink);font-weight:600}
 .right .a{color:var(--add)} .right .d{color:var(--del)}
 
@@ -42,8 +42,7 @@ button.solid:hover{background:#2a2f35}
 .panes.three{grid-template-columns:1fr 1fr 1fr}
 .pane{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0}
 .pane:last-child{border-right:0}
-.pl{padding:7px 12px;background:var(--tint);border-bottom:1px solid var(--line);font-family:var(--m);font-size:10px;
-  letter-spacing:.12em;text-transform:uppercase;color:var(--sub);display:flex;justify-content:space-between}
+.pl{padding:7px 12px;background:var(--tint);border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--sub);display:flex;justify-content:space-between}
 textarea{flex:1;border:0;outline:none;resize:none;padding:10px 12px;font-family:var(--m);font-size:12px;line-height:1.6;color:var(--ink);background:var(--paper)}
 textarea:focus{background:#fcfdff}
 
@@ -63,8 +62,8 @@ del{background:#ffc2cc;text-decoration:none;border-radius:2px;padding:0 1px}
 .side{display:grid;grid-template-columns:1fr 1fr}
 .side .col{border-right:1px solid var(--line);min-width:0}
 .side .col:last-child{border-right:0}
-.empty{padding:26px;color:var(--dim);font-family:var(--m);font-size:12px}
-.foot{flex:none;border-top:1px solid var(--line);padding:9px 18px;font-family:var(--m);font-size:10.5px;color:var(--dim);
+.empty{padding:26px;color:var(--sub);font-size:13.5px}
+.foot{flex:none;border-top:1px solid var(--line);padding:9px 18px;font-size:12px;color:var(--sub);
   display:flex;gap:18px;flex-wrap:wrap}
 .foot a{color:var(--sub)}
 .foot span.k{color:var(--sub)}
@@ -90,9 +89,9 @@ del{background:#ffc2cc;text-decoration:none;border-radius:2px;padding:0 1px}
   <div class="right">
     <span><b class="a" id="m-add">0</b> added</span>
     <span><b class="d" id="m-del">0</b> removed</span>
-    <span><b id="m-sim">—</b> similar</span>
-    <span><b id="m-d">—</b> edit distance</span>
-    <span><b id="m-ms">—</b></span>
+    <span><b id="m-sim">–</b> similar</span>
+    <span><b id="m-d">–</b> edit distance</span>
+    <span><b id="m-ms">–</b></span>
   </div>
 </div>
 
@@ -102,11 +101,11 @@ del{background:#ffc2cc;text-decoration:none;border-radius:2px;padding:0 1px}
     <textarea id="base" spellcheck="false"></textarea>
   </div>
   <div class="pane">
-    <div class="pl"><span>A · original</span><span id="n-a">0 lines</span></div>
+    <div class="pl"><span>A, original</span><span id="n-a">0 lines</span></div>
     <textarea id="a" spellcheck="false"></textarea>
   </div>
   <div class="pane">
-    <div class="pl"><span>B · changed</span><span id="n-b">0 lines</span></div>
+    <div class="pl"><span>B, changed</span><span id="n-b">0 lines</span></div>
     <textarea id="b" spellcheck="false"></textarea>
   </div>
 </div>
@@ -114,9 +113,9 @@ del{background:#ffc2cc;text-decoration:none;border-radius:2px;padding:0 1px}
 <div class="out" id="out"></div>
 
 <div class="foot">
-  <span class="k">Myers O(ND) · character refinement · diff3</span>
-  <span id="f-alg">—</span>
-  <span style="margin-left:auto">Built by <a href="https://bxzex.com">bxzex</a> · <a href="https://github.com/bxzex/delta">Source</a></span>
+  <span class="k">Myers O(ND), character refinement, diff3</span>
+  <span id="f-alg">–</span>
+  <span style="margin-left:auto">© 2026 <a href="https://bxzex.com">bxzex</a> · <a href="https://github.com/bxzex/delta">Source</a></span>
 </div>
 
 <script>
@@ -271,12 +270,13 @@ function run(){
   let added = 0, removed = 0, same = 0;
   script.forEach(op => { if(op.t === "+") added++; else if(op.t === "-") removed++; else same++; });
   const total = added + removed + same;
+  const changed = hunks.filter((h, i) => h.t !== "=" && (i === 0 || hunks[i-1].t === "=")).length;
   $("m-add").textContent = added;
   $("m-del").textContent = removed;
-  $("m-sim").textContent = total ? Math.round(same/total*100)+"%" : "—";
+  $("m-sim").textContent = total ? Math.round(same/total*100)+"%" : "–";
   $("m-d").textContent = added + removed;
   $("m-ms").textContent = ms.toFixed(2)+" ms";
-  $("f-alg").textContent = lastSteps.toLocaleString()+" diagonal steps · "+hunks.length+" hunks";
+  $("f-alg").textContent = lastSteps.toLocaleString()+" diagonal steps · "+changed+(changed === 1 ? " change" : " changes");
 
   view === "split" ? renderSplit(A, B, hunks) : renderUnified(A, B, hunks);
 }
@@ -296,8 +296,11 @@ function pairHunks(hunks){
   }
   return rows;
 }
+const sameNote = (A, B) => A.join("").trim() || B.join("").trim() ? "Both sides are identical." : "Paste text into A and B to compare.";
+const plural = n => n + (n === 1 ? " unchanged line" : " unchanged lines");
 function renderSplit(A, B, hunks){
   const rows = pairHunks(hunks);
+  if(rows.every(r => r.kind === "same")){ $("out").innerHTML = '<p class="empty">'+sameNote(A, B)+'</p>'; return; }
   let left = "", right = "";
   const CTX = 3;
   rows.forEach((r,ri) => {
@@ -312,7 +315,7 @@ function renderSplit(A, B, hunks){
       };
       head.forEach(emit);
       if(hidden > 0){
-        const g = '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>'+hidden+' unchanged lines</td></tr>';
+        const g = '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>'+plural(hidden)+'</td></tr>';
         left += g; right += g;
       }
       tail.forEach(emit);
@@ -336,6 +339,7 @@ function renderSplit(A, B, hunks){
 }
 function renderUnified(A, B, hunks){
   const rows = pairHunks(hunks);
+  if(rows.every(r => r.kind === "same")){ $("out").innerHTML = '<p class="empty">'+sameNote(A, B)+'</p>'; return; }
   let h = "";
   const CTX = 3;
   rows.forEach((r,ri) => {
@@ -345,7 +349,7 @@ function renderUnified(A, B, hunks){
       const tail = r.items.slice(Math.max(head.length, n - (ri === rows.length-1 ? 0 : CTX)));
       const hidden = n - head.length - tail.length;
       head.forEach(op => h += '<tr><td class="n">'+(op.a+1)+'</td><td class="sign"> </td><td>'+esc(A[op.a])+'</td></tr>');
-      if(hidden > 0) h += '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>@@ '+hidden+' unchanged lines @@</td></tr>';
+      if(hidden > 0) h += '<tr class="gap"><td class="n">⋯</td><td class="sign"></td><td>@@ '+plural(hidden)+' @@</td></tr>';
       tail.forEach(op => h += '<tr><td class="n">'+(op.a+1)+'</td><td class="sign"> </td><td>'+esc(A[op.a])+'</td></tr>');
       return;
     }
